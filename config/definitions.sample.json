@@ -1,0 +1,1 @@
+{"definitions":[{"evidence_type":"log_success","name":"example-daily-job","period":"1d","timezone":"Asia/Tokyo","tolerance_seconds":7200}]}

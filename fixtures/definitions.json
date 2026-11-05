@@ -1,0 +1,1 @@
+{"definitions":[{"evidence_type":"log_success","name":"watchdog-selftest-overdue","period":"1d","timezone":"Asia/Tokyo","tolerance_seconds":1800},{"evidence_type":"log_success","name":"watchdog-selftest-fresh","period":"1d","timezone":"Asia/Tokyo","tolerance_seconds":7200}]}
