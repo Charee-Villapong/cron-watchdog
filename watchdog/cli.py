@@ -32,9 +32,20 @@ from watchdog.status import Status
 
 DEFAULT_DATA_DIR = Path.home() / "workspace" / "cron-watchdog-data"
 
+# Single definition of the ledger-row serialization shape: the key
+# order here is both the JSON key order and the CSV column order.
+ROW_FIELDS = (
+    "name",
+    "period",
+    "last_success_at",
+    "consecutive_failures",
+    "next_due_at",
+    "status",
+)
+
 
 def _row_dict(row) -> dict:
-    return {
+    values = {
         "name": row.name,
         "period": row.period,
         "last_success_at": (
@@ -44,6 +55,11 @@ def _row_dict(row) -> dict:
         "next_due_at": row.next_due_at.isoformat() if row.next_due_at else None,
         "status": row.status.value,
     }
+    return {field: values[field] for field in ROW_FIELDS}
+
+
+def _rows_json(rows) -> str:
+    return json.dumps([_row_dict(r) for r in rows], ensure_ascii=False, indent=2)
 
 
 def _build_rows(args: argparse.Namespace, now: datetime):
@@ -64,27 +80,16 @@ def _persist_state(args: argparse.Namespace, store, states) -> None:
 def _emit_rows(args: argparse.Namespace, rows) -> None:
     """Write the optional --out file and print the rows to stdout."""
     if args.out:
-        text = json.dumps([_row_dict(r) for r in rows], ensure_ascii=False, indent=2)
-        Path(args.out).write_text(text + "\n", encoding="utf-8")
+        Path(args.out).write_text(_rows_json(rows) + "\n", encoding="utf-8")
     if args.format == "csv":
         buffer = io.StringIO()
-        writer = csv.DictWriter(
-            buffer,
-            fieldnames=[
-                "name",
-                "period",
-                "last_success_at",
-                "consecutive_failures",
-                "next_due_at",
-                "status",
-            ],
-        )
+        writer = csv.DictWriter(buffer, fieldnames=list(ROW_FIELDS))
         writer.writeheader()
         for row in rows:
             writer.writerow(_row_dict(row))
         sys.stdout.write(buffer.getvalue())
     else:
-        print(json.dumps([_row_dict(r) for r in rows], ensure_ascii=False, indent=2))
+        print(_rows_json(rows))
 
 
 def _record_check_heartbeat(
