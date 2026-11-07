@@ -14,6 +14,15 @@ from typing import Iterable
 
 from watchdog.ledger import LedgerRow, extract_overdue
 
+# Notification texts (single definition; the wording itself is part
+# of the behaviour and must not change casually).
+TEXT_NO_ANOMALY = "異常なし"
+TEXT_NO_ANOMALY_SHADOW = "異常なし（シャドー中につき未送信）"
+TEXT_OVERDUE_HEADER = "期限超過を検出しました:"
+TEXT_OVERDUE_SHADOW_PREFIX = "期限超過を検出しました（シャドー中につき未送信）: "
+TEXT_OVERDUE_LINE_TEMPLATE = "- {name} (周期 {period})"
+SUPPRESSED_REASON_SHADOW = "shadow mode: notifications suppressed"
+
 
 @dataclass(frozen=True)
 class NotificationPayload:
@@ -32,25 +41,27 @@ def build_notification(
     if shadow_mode:
         if detections:
             names = ", ".join(row.name for row in detections)
-            text = f"期限超過を検出しました（シャドー中につき未送信）: {names}"
+            text = f"{TEXT_OVERDUE_SHADOW_PREFIX}{names}"
         else:
-            text = "異常なし（シャドー中につき未送信）"
+            text = TEXT_NO_ANOMALY_SHADOW
         return NotificationPayload(
             should_notify=False,
             text=text,
-            suppressed_reason="shadow mode: notifications suppressed",
+            suppressed_reason=SUPPRESSED_REASON_SHADOW,
             detections=detections,
         )
     if not detections:
         return NotificationPayload(
             should_notify=False,
-            text="異常なし",
+            text=TEXT_NO_ANOMALY,
             suppressed_reason=None,
             detections=(),
         )
-    lines = ["期限超過を検出しました:"]
+    lines = [TEXT_OVERDUE_HEADER]
     for row in detections:
-        lines.append(f"- {row.name} (周期 {row.period})")
+        lines.append(
+            TEXT_OVERDUE_LINE_TEMPLATE.format(name=row.name, period=row.period)
+        )
     return NotificationPayload(
         should_notify=True,
         text="\n".join(lines),
