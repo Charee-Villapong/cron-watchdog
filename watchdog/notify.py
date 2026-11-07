@@ -12,8 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from watchdog.ledger import LedgerRow
-from watchdog.status import Status
+from watchdog.ledger import LedgerRow, extract_overdue
 
 
 @dataclass(frozen=True)
@@ -29,7 +28,7 @@ def build_notification(
     *,
     shadow_mode: bool = False,
 ) -> NotificationPayload | None:
-    detections = tuple(row for row in rows if row.status == Status.FAILURE)
+    detections = tuple(extract_overdue(rows))
     if shadow_mode:
         if detections:
             names = ", ".join(row.name for row in detections)

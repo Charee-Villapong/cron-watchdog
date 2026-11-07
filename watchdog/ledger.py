@@ -71,6 +71,16 @@ def build_ledger_row(state: JobState, now: datetime) -> LedgerRow:
     )
 
 
+def extract_overdue(rows: Iterable[LedgerRow]) -> list[LedgerRow]:
+    """Return the overdue (FAILURE) rows, preserving input order.
+
+    This is the single definition of the overdue extraction predicate:
+    ledger detection, notification building and the CLI anomaly list
+    all go through here so they can never drift apart.
+    """
+    return [row for row in rows if row.status == Status.FAILURE]
+
+
 def detect_overdue(states: Iterable[JobState], now: datetime) -> list[LedgerRow]:
     rows = [build_ledger_row(state, now) for state in states]
-    return [row for row in rows if row.status == Status.FAILURE]
+    return extract_overdue(rows)

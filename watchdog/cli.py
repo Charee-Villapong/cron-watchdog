@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 
 from watchdog.definitions import load_definitions_file
 from watchdog.heartbeat import append_heartbeat_record, record_heartbeat
-from watchdog.ledger import build_ledger_row
+from watchdog.ledger import build_ledger_row, extract_overdue
 from watchdog.notify import build_notification, read_notify_flag
 from watchdog.snapshot import build_job_states, load_snapshot
 from watchdog.state import apply_store, load_state, merge_observations, save_state
@@ -87,7 +87,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
     # Heartbeat: JSONL log + plain last-run file, both outside the ledger.
     record_heartbeat(data_dir / "last-run.txt", now)
-    anomalies = [r.name for r in rows if r.status == Status.FAILURE]
+    anomalies = [r.name for r in extract_overdue(rows)]
     unknown = [r.name for r in rows if r.status == Status.UNKNOWN]
     append_heartbeat_record(
         data_dir / "watchdog-heartbeat.jsonl",
