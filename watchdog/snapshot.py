@@ -108,13 +108,15 @@ def build_job_states(
 
 def sanitized_snapshot_errors(snapshot: dict) -> dict[str, str]:
     """Masked error excerpts per target (error_text only, never summaries)."""
-    from watchdog.masking import mask_sensitive
+    from watchdog.masking import EXCERPT_MAX_LENGTH, mask_sensitive
 
     out: dict[str, str] = {}
     for name, entry in snapshot.get("targets", {}).items():
         for run in entry.get("runs") or []:
             error_text = run.get("error_text")
             if error_text:
-                out[name] = mask_sensitive(str(error_text))
+                out[name] = mask_sensitive(
+                    str(error_text), max_length=EXCERPT_MAX_LENGTH
+                )
                 break
     return out
