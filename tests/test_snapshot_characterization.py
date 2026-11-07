@@ -402,7 +402,17 @@ def test_sanitized_errors_includes_targets_outside_definitions():
     assert sanitized_snapshot_errors(snapshot) == {"unknown-x": "boom"}
 
 
-def test_sanitized_errors_caps_long_text_at_200():
+def test_sanitized_errors_caps_long_text_at_120():
+    """長いエラー抜粋は120文字で切り取られる。
+
+    仕様変更による更新: 本来は現状固定の特性テストで、変更前は
+    旧仕様の200文字上限を固定していた（旧テスト名
+    ``test_sanitized_errors_caps_long_text_at_200``）。
+    本人の決定（2026-11-07、C-048）により
+    ``sanitized_snapshot_errors`` の抜粋上限が
+    ``EXCERPT_MAX_LENGTH``=120へ変更されたため、仕様由来の
+    更新として本テストを新しい仕様（120）に合わせて更新した。
+    """
     from watchdog.snapshot import sanitized_snapshot_errors
 
     snapshot = {
@@ -413,7 +423,7 @@ def test_sanitized_errors_caps_long_text_at_200():
 
     result = sanitized_snapshot_errors(snapshot)
 
-    assert len(result["job-a"]) == 200
+    assert len(result["job-a"]) == 120
 
 
 def test_sanitized_errors_empty_snapshot_returns_empty_dict():
