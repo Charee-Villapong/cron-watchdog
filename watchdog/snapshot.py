@@ -46,6 +46,49 @@ def load_snapshot(path: str | Path) -> dict:
     return data
 
 
+def _last_success_from_runs(runs: list) -> datetime | None:
+    """Latest finished_at among succeeded runs, or None if there is none."""
+    last_success: datetime | None = None
+    for run in runs:
+        if run.get("status") == "succeeded":
+            candidate = _parse_dt(run.get("finished_at"))
+            if candidate is not None and (
+                last_success is None or candidate > last_success
+            ):
+                last_success = candidate
+    return last_success
+
+
+def _consecutive_failures(status: dict) -> int:
+    consecutive = status.get("consecutive_failures")
+    if not isinstance(consecutive, int) or isinstance(consecutive, bool):
+        consecutive = 0
+    return consecutive
+
+
+def _is_running(status: dict, runs: list) -> bool:
+    return bool(status.get("in_flight")) or any(
+        run.get("finished_at") is None and run.get("started_at") is not None
+        for run in runs
+    )
+
+
+def _build_available_state(definition: Definition, entry: dict) -> JobState:
+    """Build the JobState for a target whose evidence is available."""
+    status = entry.get("status") or {}
+    runs = entry.get("runs") or []
+    last_success = _parse_dt(status.get("last_success_at"))
+    if last_success is None:
+        last_success = _last_success_from_runs(runs)
+    return JobState(
+        definition=definition,
+        last_success_at=last_success,
+        consecutive_failures=_consecutive_failures(status),
+        running=_is_running(status, runs),
+        evidence_available=True,
+    )
+
+
 def build_job_states(
     definitions: list[Definition],
     snapshot: dict,
@@ -59,33 +102,7 @@ def build_job_states(
         if entry is None or definition.name in collect_errors:
             states.append(JobState(definition=definition, evidence_available=False))
             continue
-        status = entry.get("status") or {}
-        runs = entry.get("runs") or []
-        last_success = _parse_dt(status.get("last_success_at"))
-        if last_success is None:
-            for run in runs:
-                if run.get("status") == "succeeded":
-                    candidate = _parse_dt(run.get("finished_at"))
-                    if candidate is not None and (
-                        last_success is None or candidate > last_success
-                    ):
-                        last_success = candidate
-        consecutive = status.get("consecutive_failures")
-        if not isinstance(consecutive, int) or isinstance(consecutive, bool):
-            consecutive = 0
-        running = bool(status.get("in_flight")) or any(
-            run.get("finished_at") is None and run.get("started_at") is not None
-            for run in runs
-        )
-        states.append(
-            JobState(
-                definition=definition,
-                last_success_at=last_success,
-                consecutive_failures=consecutive,
-                running=running,
-                evidence_available=True,
-            )
-        )
+        states.append(_build_available_state(definition, entry))
     return states
 
 
