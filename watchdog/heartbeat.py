@@ -37,15 +37,3 @@ def append_heartbeat_record(path: str | Path, record: dict) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-
-def read_heartbeat_records(path: str | Path) -> list[dict]:
-    target = Path(path)
-    if not target.exists():
-        return []
-    records = []
-    for line in target.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line:
-            records.append(json.loads(line))
-    return records
