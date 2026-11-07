@@ -18,6 +18,7 @@ import io
 import json
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from watchdog.clock import resolve_now
@@ -45,18 +46,23 @@ def _row_dict(row) -> dict:
     }
 
 
-def _cmd_check(args: argparse.Namespace) -> int:
-    data_dir = Path(args.data_dir)
-    now = resolve_now(args.now)
+def _build_rows(args: argparse.Namespace, now: datetime):
+    """Load inputs, apply the state store and build the ledger rows."""
     definitions = load_definitions_file(args.definitions)
     snapshot = load_snapshot(args.snapshot)
     store = load_state(args.state)
     states = apply_store(store, build_job_states(definitions, snapshot))
     rows = [build_ledger_row(state, now) for state in states]
+    return store, states, rows
 
+
+def _persist_state(args: argparse.Namespace, store, states) -> None:
     merge_observations(store, states)
     save_state(args.state, store)
 
+
+def _emit_rows(args: argparse.Namespace, rows) -> None:
+    """Write the optional --out file and print the rows to stdout."""
     if args.out:
         text = json.dumps([_row_dict(r) for r in rows], ensure_ascii=False, indent=2)
         Path(args.out).write_text(text + "\n", encoding="utf-8")
@@ -80,6 +86,11 @@ def _cmd_check(args: argparse.Namespace) -> int:
     else:
         print(json.dumps([_row_dict(r) for r in rows], ensure_ascii=False, indent=2))
 
+
+def _record_check_heartbeat(
+    data_dir: Path, args: argparse.Namespace, now: datetime, rows
+) -> tuple[list[str], list[str]]:
+    """Record the heartbeat in both stores; return (anomalies, unknown)."""
     # Heartbeat: JSONL log + plain last-run file, both outside the ledger.
     record_heartbeat(data_dir / "last-run.txt", now)
     anomalies = [r.name for r in extract_overdue(rows)]
@@ -97,7 +108,11 @@ def _cmd_check(args: argparse.Namespace) -> int:
             "snapshot": str(args.snapshot),
         },
     )
+    return anomalies, unknown
 
+
+def _log_notification(data_dir: Path, now: datetime, rows) -> tuple[bool, Path]:
+    """Generate the notification payload and log it; return (enabled, outbox)."""
     # Notification: generate + log only. Sending is never done here;
     # shadow is in effect unless the flag file explicitly enables it.
     notify_enabled = read_notify_flag(data_dir / "notify-flag.json")
@@ -120,6 +135,20 @@ def _cmd_check(args: argparse.Namespace) -> int:
             )
             + "\n"
         )
+    return notify_enabled, outbox
+
+
+def _cmd_check(args: argparse.Namespace) -> int:
+    data_dir = Path(args.data_dir)
+    now = resolve_now(args.now)
+    store, states, rows = _build_rows(args, now)
+
+    _persist_state(args, store, states)
+    _emit_rows(args, rows)
+
+    anomalies, unknown = _record_check_heartbeat(data_dir, args, now, rows)
+    notify_enabled, outbox = _log_notification(data_dir, now, rows)
+
     print(
         f"[watchdog] checked={len(rows)} overdue={anomalies} "
         f"unknown={unknown} notify_enabled={notify_enabled} "
