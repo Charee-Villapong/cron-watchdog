@@ -43,6 +43,14 @@ ROW_FIELDS = (
     "status",
 )
 
+# Layout under the data directory (the --data-dir base itself stays
+# configurable; only these names below it are fixed here).
+LAST_RUN_FILENAME = "last-run.txt"
+HEARTBEAT_FILENAME = "watchdog-heartbeat.jsonl"
+NOTIFY_FLAG_FILENAME = "notify-flag.json"
+OUTBOX_DIRNAME = "outbox"
+NOTIFICATIONS_FILENAME = "notifications.jsonl"
+
 
 def _row_dict(row) -> dict:
     values = {
@@ -97,11 +105,11 @@ def _record_check_heartbeat(
 ) -> tuple[list[str], list[str]]:
     """Record the heartbeat in both stores; return (anomalies, unknown)."""
     # Heartbeat: JSONL log + plain last-run file, both outside the ledger.
-    record_heartbeat(data_dir / "last-run.txt", now)
+    record_heartbeat(data_dir / LAST_RUN_FILENAME, now)
     anomalies = [r.name for r in extract_overdue(rows)]
     unknown = [r.name for r in rows if r.status == Status.UNKNOWN]
     append_heartbeat_record(
-        data_dir / "watchdog-heartbeat.jsonl",
+        data_dir / HEARTBEAT_FILENAME,
         {
             "run_id": str(uuid.uuid4()),
             "mode": "check",
@@ -120,9 +128,9 @@ def _log_notification(data_dir: Path, now: datetime, rows) -> tuple[bool, Path]:
     """Generate the notification payload and log it; return (enabled, outbox)."""
     # Notification: generate + log only. Sending is never done here;
     # shadow is in effect unless the flag file explicitly enables it.
-    notify_enabled = read_notify_flag(data_dir / "notify-flag.json")
+    notify_enabled = read_notify_flag(data_dir / NOTIFY_FLAG_FILENAME)
     payload = build_notification(rows, shadow_mode=not notify_enabled)
-    outbox = data_dir / "outbox" / "notifications.jsonl"
+    outbox = data_dir / OUTBOX_DIRNAME / NOTIFICATIONS_FILENAME
     outbox.parent.mkdir(parents=True, exist_ok=True)
     with outbox.open("a", encoding="utf-8") as fh:
         fh.write(
@@ -165,7 +173,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 def _cmd_heartbeat(args: argparse.Namespace) -> int:
     now = resolve_now(args.now)
-    path = Path(args.data_dir) / "last-run.txt"
+    path = Path(args.data_dir) / LAST_RUN_FILENAME
     record_heartbeat(path, now)
     print(f"heartbeat recorded: {path} {now.isoformat()}")
     return 0
@@ -173,9 +181,10 @@ def _cmd_heartbeat(args: argparse.Namespace) -> int:
 
 def _cmd_shadow_status(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir)
-    enabled = read_notify_flag(data_dir / "notify-flag.json")
+    flag_path = data_dir / NOTIFY_FLAG_FILENAME
+    enabled = read_notify_flag(flag_path)
     mode = "notify enabled" if enabled else "shadow (notifications suppressed)"
-    print(f"notify-flag: {data_dir / 'notify-flag.json'}")
+    print(f"notify-flag: {flag_path}")
     print(f"mode: {mode}")
     return 0
 
