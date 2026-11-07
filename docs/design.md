@@ -148,184 +148,60 @@ C7 台帳ライタ ── Sheets コネクタ → [台帳スプレッドシー�
 
 ## 3. 定義表の形式
 
-> 【未採用】本節全体（YAML・11系統項目・定義例5本）は採用されなかった。定義の正本はテスト契約 `tests/interfaces.md` §1 と `docs/design-notes.md` であり、本文の置き換え（参照化）は C-072 で行う。
+> 【履歴・参照化済み（C-072）】初期設計では YAML ファイル
+> `config/targets.yaml` を正本とし、11系統の項目と実在5本の定義例を
+> 本節に定義していた（A-1／A-6／A-7）。いずれも採用されなかったため、
+> 定義本文は本節に重複して保持しない。
 
-### 3.1 形式の選択
-
-- **YAML ファイル `config/targets.yaml`**（新リポジトリ内、Git 管理）。
-- 理由：cron 定義自体が YAML frontmatter であり、書式の学習コストが無い。Git の差分で「いつ・どの条件を変えたか」が残り、シャドー期間の調整履歴そのものになる。シート側には §8 の「定義」タブへ写しを置き、閲覧はシートでもできるようにする（正本は YAML）。
-- 代替案（シート自体を定義表にする）は、版管理ができず、プログラムからの読み取りがエージェント経由になり判定の純粋性（§1.3）が崩れるため不採用。代替案（JSON）は手編集時の可読性で YAML に劣るため不採用。
-- 本体（Judge）は定義表を読むだけ。**判定条件の調整＝このファイルの変更**で済む構造にする（IT必須1）。
-
-### 3.2 全項目
-
-| 項目 | 型 | 必須 | 説明 |
-|---|---|---|---|
-| `id` | string | ○ | 対象 cron のジョブ ID（cron 定義の `id` と完全一致させる。Judge はこの ID でスナップショットを引く） |
-| `display_name` | string | ○ | 台帳の表示名（cron 定義の `title` を基本とする。人名・連絡先は入れない） |
-| `enabled` | bool | ○ | 見守りの有効／無効。`false` の行は判定・台帳更新の対象外（定義タブにのみ残る） |
-| `schedule.kind` | enum | ○ | `daily`／`weekly`／`monthly`／`interval`／`yearly`（cron の schedule.kind と同じ語彙） |
-| `schedule.time` | string `HH:MM:SS` | kind により必須 | daily／weekly／monthly／yearly の発火時刻 |
-| `schedule.dow` | list[string] | weekly 時必須 | `Mon`〜`Sun` |
-| `schedule.dom` | list[int] | monthly 時必須 | 日（1〜31） |
-| `schedule.every` | string | interval 時必須 | `30m`／`6h` 等（cron の `every` 表記をそのまま） |
-| `timezone` | string | ○ | 判定に使うタイムゾーン。IANA 名（例 `Asia/Tokyo`）か `@user.current`。`@user.current` の場合は収集係が収集時点の解決済み IANA 名をスナップショットに記録し、Judge はそれを使う（IT必須1の「判定タイムゾーン」） |
-| `grace` | string（期間） | ○ | 許容遅延。`120m`／`3h` の形。予定時刻＋この猶予を過ぎても成功が無ければ期限超過候補（§4） |
-| `evidence.kind` | enum | ○ | 成功の証跡の種類：`cron_status`／`artifact_file`／`artifact_json`／`cron_or_artifact`／`cron_and_artifact`（§5.2） |
-| `evidence.path` | string | artifact 系で必須 | 成果物ファイルのパス（`~` 展開可）。日付入りの場合は `evidence.glob` を使う |
-| `evidence.glob` | string | 任意 | 日付プレースホルダ `{date}`（対象タイムゾーンの日付 `YYYY-MM-DD`）を含むパターン |
-| `evidence.json_key` | string | artifact_json で必須 | 成果物 JSON 内の「最終更新を示すキー」のドットパス（例 `last_batch.collected_at`）。キー値が ISO 8601 時刻、またはファイル更新時刻で代替する場合は `mtime` と書く |
-| `failure_threshold` | int | 任意（既定 2） | 連続失敗がこの回数以上で、期限超過とは独立に「失敗」とする閾値（§4.4）。周期内に複数回走る interval 系で効く |
-| `expected_duration` | string（期間） | 任意（既定 `60m`） | 1回の実行にかかる想定上限。「実行中」判定の打ち切り（§4.2）に使う。cron 側に `timeout_secs` がある対象はそれに合わせる |
-| `notes` | string | 任意 | 定義上の注意（例：成果物が無い日も正常な理由）。個人情報は書かない |
-
-### 3.3 定義例（実在確認済み5本）
-
-いずれも定義ファイルを実読して確認した値である（発火時刻・曜日・タイムゾーンは実定義どおり）。
-
-```yaml
-targets:
-- id: daily-fortune-ensemble
-display_name: 毎朝のアンサンブル占い
-enabled: true
-schedule: { kind: daily, time: "07:08:00"}
-timezone: Asia/Tokyo # 実定義も Asia/Tokyo 明示
-grace: 120m # 実績では発火から完了まで約25分。初期値は余裕を持ちシャドーで調整
-evidence:
-kind: cron_or_artifact
-glob: "~/workspace/goals/goal-4/hidden_files/fortune-{date}.pdf"
-failure_threshold: 2
-expected_duration: 60m
-notes: 成果物PDFの日付は対象日のもの。当日分ファイルの存在を cron 成功の裏取りに使う
-
-- id: diary-daily-reminder
-display_name: 日記リマインド（毎日22時頃）
-enabled: true
-schedule: { kind: daily, time: "22:08:00"}
-timezone: "@user.current" # 実定義が @user.current。収集時に解決して記録
-grace: 120m
-evidence:
-kind: cron_status # その日すでに記入済みなら何も送らず正常終了するため、成果物では判定できない
-failure_threshold: 2
-expected_duration: 30m
-notes: 成功の定義は「run が succeeded であること」そのもの
-
-- id: threads-tech-collection
-display_name: Threads技術情報の定期収集（月・水・金）
-enabled: true
-schedule: { kind: weekly, time: "09:08:00", dow: [Mon, Wed, Fri]}
-timezone: "@user.current"
-grace: 180m # timeout 3600s の長尺ジョブ。実績の所要は約30分
-evidence:
-kind: cron_or_artifact
-path: "~/workspace/goals/threads/hidden_files/state.json"
-json_key: mtime # state.json の更新時刻を証跡にする（キー時刻の確定は Executor の初回調査で）
-failure_threshold: 2
-expected_duration: 60m
-notes: 2026-11-04 実行分が失敗中（連続失敗1）。シャドー期間の実地ケースになる
-
-- id: protein-reminder-morning
-display_name: プロテイン通知（朝）
-enabled: true
-schedule: { kind: daily, time: "09:00:00"}
-timezone: Asia/Tokyo
-grace: 120m
-evidence:
-kind: cron_status # チャット通知のみで成果物ファイルは無い
-failure_threshold: 2
-expected_duration: 15m
-
-- id: protein-reminder-night
-display_name: プロテイン通知（夜）
-enabled: true
-schedule: { kind: daily, time: "23:30:00"}
-timezone: Asia/Tokyo
-grace: 120m # 日付をまたぐため、判定は日付ではなく日時で行う（§4.5）
-evidence:
-kind: cron_status
-failure_threshold: 2
-expected_duration: 15m
-```
-
-- 導入は上記5本から開始し、安定後に残りの定例（電気・売電・水道の月次、Gmail 月次整理、上場ウォッチ、CBT 週次 等）へ広げる。**runonce（単発）は対象外**。`enabled: false` のジョブ（例：現在無効化されている監視系ジョブ）は定義に載せない／載せる場合は `enabled: false` とする。
-
----
+- 定義の正本：テスト契約 `tests/interfaces.md` §1（形式・必須項目・
+  周期表記・検証とエラー扱いはすべて同節が正）。
+- 形式の裁定（JSON、Python 標準ライブラリのみ、追加依存ゼロ）：
+  `docs/design-notes.md`「定義表の形式」。
+- 同梱物：サンプルは `config/definitions.sample.json`、自己試験用は
+  `fixtures/definitions.json`。実定義はリポジトリ外のランタイム JSON に
+  置かれる前提であり、リポジトリ内には無い。
 
 ## 4. 判定ロジック
 
-### 4.1 入力と基本量
+> 【履歴・参照化済み（C-072）】初期設計では予定表ベースの判定
+> （直近の予定発火時刻＋猶予）、順序付き決定表と理由コード、予定時刻の
+> 算出までを本節に定義していた（A-8〜A-11）。いずれも採用されなかった
+> ため、判定の定義本文は本節に重複して保持しない。
 
-> 【未採用】予定表ベースの期限超過定義（`last_due + grace`）は実装されていない。現行の判定式の正はテスト契約 §2 と `docs/design-notes.md`。
+### 4.1 判定式
 
-判定は対象ごとに、判定時刻 `now`（対象タイムゾーンへ変換した aware datetime）に対して以下を計算する。
+- 正本：テスト契約 `tests/interfaces.md` §2 と
+  `docs/design-notes.md`「状態判定の計算式（テスト契約を優先）」。
+  本書の旧式（予定表ベース）は不採用であり、現行の式に読み替えては
+  いけない（式の文面自体は正本側にのみ置く）。
 
-- `last_due`：`now` 以前で最も新しい予定発火時刻（§4.5 の算出）。予定が1つも無い場合は `None`。
-- `next_due`：`now` より後で最も近い予定発火時刻。
-- `deadline = last_due + grace`（`last_due` が無い場合は定義登録時刻＋最初の周期で代替せず、§4.2 の未実行扱い）。
-- `last_success_at`：次のうち最も新しいもの（すべて対象タイムゾーンへ正規化）。
-1. `cron.status` の `last_success_at`
-2. 状態ストアに累積された観測済み最終成功（履歴切り捨て対策、§5.4）
-3. 証跡が artifact 系を含む場合、成果物から得た成功時刻（その成果物が `last_due` 以降の回に対応する場合のみ有効。日次ファイルなら対象日が `last_due` の日付と一致すること）
-- `consecutive_failures`：§4.4 の数え方。
-- `covers_last_due = (last_success_at is not None and last_success_at >= last_due)`
+### 4.2 状態5区分の条件
 
-「期限超過」の定義（企画書の「最終成功＋周期＋許容遅延」と等価な、予定表ベースの形で実装する）：
-
-> **期限超過 ⇔ `now > deadline` かつ `covers_last_due == False`**
-> （＝直近の予定回について、許容遅延を過ぎても成功の証跡が無い）
-
-予定表ベースにする理由：weekly（金→月は72時間）や monthly では「周期」が一定でなく、「最終成功＋固定周期」では誤判定するため。daily のような等間隔では両者は一致する。台帳には参考値として「最終成功からの経過時間」も出すが、判定には使わない。
-
-### 4.2 状態5区分の決定手順
-
-> 【未採用】順序付き決定表・理由コード11種・実行中打ち切り・`JOB_DISABLED` 等は実装されていない。現行の状態条件の正はテスト契約 §2（4分岐）。状態値の日本語ラベル5値のみ本節と一致する。
-
-上から順に評価し、最初に該当したものを状態とする（IT必須2。実行中・判定不能を失敗に混ぜない）。
-
-| 順 | 状態 | 条件 |
-|---|---|---|
-| 1 | **判定不能** | スナップショットに対象が無い／収集自体が失敗した／スケジュール定義が解釈できない／タイムゾーンを解決できない／証跡の所在が読めない（パーミッション等）——のいずれかで、他の証跡からも代替判定できない場合。理由コードを必ず付ける（`SOURCE_MISSING`、`COLLECT_FAILED`、`SCHEDULE_UNPARSEABLE`、`TZ_UNRESOLVED`、`EVIDENCE_UNREADABLE`） |
-| 2 | **実行中** | `cron.status` の `in_flight == true` または `running_runs > 0`。または最新の run が `started_at` を持ち `finished_at` が無く、`now < started_at + expected_duration`。打ち切り（`expected_duration` 超過）後は実行中とはせず、次段以降で判定する（止まった実行を「実行中」と偽り続けない） |
-| 3 | **未実行** | run 記録が1件も無く、かつ `now <= deadline`（初回の期限内）。登録直後・初回発火前がここに入る。run が無く期限も過ぎていれば未実行ではなく次段の失敗（理由 `NEVER_RAN_OVERDUE`） |
-| 4 | **成功** | `covers_last_due == True` かつ連続失敗が閾値未満。直近の予定回が成功でカバーされている正常状態 |
-| 5 | **失敗** | 次のいずれか：(a) 期限超過（§4.1）＝理由 `OVERDUE`／一度も成功が無く期限超過＝`NEVER_RAN_OVERDUE`、(b) `consecutive_failures >= failure_threshold` かつ最新の完了 run が失敗＝理由 `CONSECUTIVE_FAILURES`、(c) 最新の予定回の run が失敗として完了し、`now > last_due + grace`（成功の見込みが無い）＝理由 `LAST_RUN_FAILED` |
-
-補足ルール：
-
-- 状態とは別に `reason_code`（上記の英語コード）と、人の言葉の短い補足を必ず保持し、台帳の「一次切り分け」列に出す。
-- `enabled: false` の実ジョブは収集結果にそう出る。定義側 `enabled: true` なのに実ジョブが無効化されている場合は、失敗ではなく **判定不能（理由 `JOB_DISABLED`）** とし、週次要約で「対象ジョブが無効化されている」ことを別行で知らせる（止めたのは故障とは限らないため）。
-- 前回状態との差分（成功→失敗、失敗→成功）は §8 の異常イベントとして記録する。状態が失敗のまま続く間は、イベントを毎回追加しない（初回検出と回復のみ）。
+- 正本：テスト契約 `tests/interfaces.md` §2。状態値の日本語ラベル
+  5値（未実行／実行中／成功／失敗／判定不能）は全書で一致する。
+- 同節の帰結として、最終成功が一度も無い対象は「未実行」のままで
+  失敗にはならない（初期設計の `NEVER_RAN_OVERDUE` は無い）。
+  理由コードという概念も実装には無い。
 
 ### 4.3 次回予定の算出
 
-> 【未採用】スケジューラ実値（`next_run_at`）は判定・台帳に使われていない。現行の正はテスト契約 §3。
-
-- 第一情報源は `cron.status` の `next_run_at`（スケジューラの実値）。台帳にはこれを使う。
-- status が取得できない場合のフォールバックとして、定義表のスケジュールから §4.5 で計算した `next_due` を使い、台帳上は算出元を区別しない（判定不能の判断材料にはしない）。
+- 正本：テスト契約 `tests/interfaces.md` §3。スケジューラ実値
+  （`next_run_at`）は判定・台帳には使われない（A-10）。
 
 ### 4.4 連続失敗回数の数え方
 
-> 【未採用を含む】束ね（`scheduled_for` 単位）・手動除外は実装されていない。関数としての正はテスト契約 §3。なお CLI 本線はその関数を使わず status の `consecutive_failures` 実値を採用しており、正は経路依存で2つある。一方への一本化は仕様変更であり、本整理では行わない。
+- 関数としての正本：テスト契約 `tests/interfaces.md` §3
+  （束ね・手動除外はしない。A-11）。
+- 経路依存の特記：CLI 本線ではその関数を使わず、スナップショットが
+  持つ status の `consecutive_failures` 実値をそのまま採用する
+  （`watchdog/snapshot.py`）。正は経路によって2つあり、どちらかへの
+  一本化は仕様変更になるため本整理では行わない。
 
-1. 第一情報源は `cron.status` の `consecutive_failures`（スケジューラの実値）。
-2. status が無い場合は `cron.runs` から自力で数える：完了した run を `finished_at` 降順に並べ、**予定回（`scheduled_for`）単位に束ねて**（リトライの `attempt` 違いを1回と数える）、直近から連続する「最終状態が失敗」の回数を数える。成功が現れた時点で止める。
-3. 手動実行（`trigger_reason!= scheduled`）の成否は連続失敗に数えない（予定回の成否ではないため）。ただし手動成功で `last_success_at` が更新される点は §4.1 のとおり扱う。※この解釈は §12 の確認事項。
-4. 状態ストアには観測した最大の連続失敗ではなく「最新の観測値」を保持する（リセットを検知するため）。
+### 4.5 予定時刻の算出方法
 
-### 4.5 予定時刻の算出方法（`last_due`／`next_due`）
-
-> 【未採用】`schedule_calc.py` は存在せず、本節の算出は未実装。将来の改善候補としての位置付けは `docs/design-notes.md` を参照。
-
-定義表のスケジュールを対象タイムゾーンで解釈する純粋関数として実装する（§10 の `last_due`／`next_due`）。
-
-- `daily`：毎日 `time`。
-- `weekly`：`dow` の曜日の `time`。
-- `monthly`：`dom` の各日の `time`。存在しない日（31日指定で30日までの月など）はその月は発火しないものとして扱う（cron 実挙動との差異はシャドーで照合する）。
-- `interval`：基準時刻が定義表だけでは決まらないため、`cron.status`／直近 run の `scheduled_for` から位相を取る。status が無ければ判定不能（`SCHEDULE_UNPARSEABLE` ではなく `SOURCE_MISSING`）。
-- `yearly`：`dom`＋月（定義表に `month` を追加してよい）＋`time`。
-- 計算は日付ではなく**日時**で行い、日付またぎ（23:30 発火＋猶予で翌日になる等）を自然に扱う。うるう年・月末は `datetime`／`zoneinfo` の暦計算に任せる。日本は DST が無いが、`zoneinfo` で一般化しておく。
-
----
+- 未実装。予定表ベースへの移行は将来の改善候補として
+  `docs/design-notes.md` に記録されている。移行する場合は定義表への
+  スケジュール情報の追加とテスト契約の更新を合わせて行う。
 
 ## 5. 実行履歴・証跡の取得方式
 
@@ -340,15 +216,14 @@ expected_duration: 15m
 
 ### 5.2 証跡の種類と優先順位（定義表 `evidence.kind`）
 
-> 【未採用】5値 enum と種別による判定分岐は実装されていない。実装の `evidence_type` は自由文字列であり、正はテスト契約 §1。
+> 【履歴・参照化済み（C-072）】初期設計の5値 enum
+> （`cron_status`／`artifact_file`／`artifact_json`／
+> `cron_or_artifact`／`cron_and_artifact`）と、種別による判定分岐は
+> 採用されなかった（A-12）。
 
-| kind | 意味 | 向く対象 |
-|---|---|---|
-| `cron_status` | run の成否そのものを成功の定義とする | 成果物の無い通知系（プロテイン、日記リマインド） |
-| `artifact_file` | 成果物ファイルの存在と更新時刻 | 日次でファイルを作る定例 |
-| `artifact_json` | 成果物 JSON の更新（キー時刻またはファイル更新時刻） | 状態ファイルを持つ定例（Threads 収集） |
-| `cron_or_artifact` | どちらか一方で成功とみなす（緩い） | 導入初期の既定。誤検知を避けたい対象 |
-| `cron_and_artifact` | 両方そろって成功（厳しい） | 「run は成功したが成果物ができていない」を検出したい対象。シャドーで誤判定が無いと確認できてから切り替える |
+- 正本：テスト契約 `tests/interfaces.md` §1。実装の `evidence_type` は
+  自由文字列であり、検証されるのは「空でない文字列」であることだけ
+  である。種別の値域は本書にも重複して定義しない。
 
 ### 5.3 Sheets 書き込みの担い手
 
@@ -378,24 +253,18 @@ expected_duration: 15m
 
 ## 6. 見守り自身の死活記録
 
-> 【未採用を含む】自己稼働の集計（`summarize_self_health`）・`stale` 判定・最新1件ファイル `last-run.json` は実装されていない。現行の正はテスト契約 §4 と README のデータ表（`last-run.txt` と JSONL の2本立て）。JSONL の1行形式の部分のみ本節と概ね一致する。
+> 【履歴・参照化済み（C-072）】初期設計にあった自己稼働の集計
+> （期待回数と実績の集計、最終実行が12時間より古ければ `stale`）と
+> 最新1件ファイル `last-run.json` は採用されなかった（A-14）。
 
-- **保存先**：台帳（Sheets）とは別の場所として、VM ローカル `~/workspace/cron-watchdog-data/watchdog-heartbeat.jsonl`（追記専用 JSONL）。もう1ファイル `last-run.json` に最新1件を上書きで置く（IT必須3）。
-- **1行の形式**：
-
-```json
-{"run_id":"<uuid>","mode":"check","started_at":"2026-11-05T18:38:02+09:00","finished_at":"2026-11-05T18:38:41+09:00","result":"ok","targets_checked":5,"anomalies":["threads-tech-collection"],"snapshot":"snapshots/2026-11-05T183802.json"}
-```
-
-- `result` は `ok`／`partial`（一部対象が判定不能）／`error`（収集または判定自体が失敗）。
-- 個人情報・エラー原文は入れない。異常対象は ID のみ。
-- **書き手**：check／週次どちらの見守り実行も、最後に必ず1行追記する（失敗時も `result: error` で追記するよう cron 本文に固定する。プロセス自体が起動しなかった場合は行が増えない＝それ自体が異常の証跡）。
-- **週次要約への含め方**：週次要約 cron が過去7日の heartbeat を集計し、要約に独立した1行を必ず含める。
-- 例：「見守り自体：最終実行 11/10 06:38、過去7日 28回中28回実行（異常なし）」
-- 期待回数は check のスケジュールから算出する（6時間ごと＝28回/週）。実績が期待を下回る／最終実行が12時間より古い場合は、要約の先頭で「見守り自体が止まっている疑い」として目立たせる。
-- **残存リスク**：check と週次要約の両方が止まると誰も知らせない（見守りの見守り問題）。v1 では受け入れ、将来課題として §12 に記録する。
-
----
+- 正本：テスト契約 `tests/interfaces.md` §4（単一ファイルへの
+  最終実行時刻の書き込み・読み戻し）と、README のデータ表。
+- 実態は2本立てである：最新1件は `last-run.txt`（プレーンテキストで
+  ISO 時刻1行）、実行記録は CLI が追記する
+  `watchdog-heartbeat.jsonl`（1行形式は本節の初期設計と概ね一致）。
+  集計関数・`stale` 判定は無い。
+- 残存リスク（初期設計からの継続事項）：見守り自体が止まると誰も
+  知らせない（見守りの見守り問題）。v1 では受け入れる。
 
 ## 7. エラーマスキングのルール
 
@@ -403,14 +272,17 @@ expected_duration: 15m
 
 ### 7.1 出力する項目（これだけ）
 
-> 【未採用】キーワードによる9分類と `MaskedError(category, ...)` 型は実装されていない。自動分類は無く、出力型の正はテスト契約 §5 の `SanitizedError`。上限 200／120 の役割分担については C-072 の整理と `docs/design-notes.md` を参照。
+> 【履歴・参照化済み（C-072）】初期設計のキーワードによる9分類
+> （`TIMEOUT` 等）と `MaskedError(category, occurred_at, has_log,
+> excerpt)` 型は採用されなかった（A-15）。自動分類は無い。
 
-| 項目 | 内容 |
-|---|---|
-| `error_category` | 下記 enum のいずれか：`TIMEOUT`／`RATE_LIMIT`／`CONNECTOR_ERROR`／`PERMISSION`／`NETWORK`／`VALIDATION`／`NOT_FOUND`／`RUNTIME`／`UNKNOWN`。`error_text` のキーワードから分類する単純な規則表（コード内固定） |
-| `occurred_at` | 失敗した run の `finished_at`（対象タイムゾーン表記） |
-| `has_error_log` | `error_text` が存在したか（真偽値） |
-| `masked_excerpt` | マスキング後の抜粋。**最大120文字**、1対象につき1つまで。不要と判断したら `None` でよい |
+- 正本：テスト契約 `tests/interfaces.md` §5。出力型は同節の
+  `SanitizedError` で、`error_type` は呼び出し側が与える文字列である。
+- マスキング上限は役割分担であり、統一しない（B-7）：
+  `mask_sensitive` の既定上限200が契約であり、台帳・通知向け抜粋の
+  上限120は定数 `watchdog.masking.EXCERPT_MAX_LENGTH` として併存する
+  （`docs/design-notes.md`「マスキング上限」参照）。利用側は用途に
+  応じて `max_length` に渡す。
 
 ### 7.2 除去・置換パターン（コード内固定の正規表現群）
 
@@ -425,7 +297,7 @@ expected_duration: 15m
 | URL のクエリ文字列 | クエリを除去（スキーム＋ホスト＋パスまで） |
 | 制御文字・改行 | 空格へ置換（1行化してから切り捨てる） |
 
-- 処理順：行単位のキーワード除去 → パターン置換 → 1行化 → **120文字で切り捨て**（末尾に `…`）。
+- 処理順：行単位のキーワード除去 → パターン置換 → 1行化 → 上限で切り捨てる（末尾に `…`）。上限の値は §7.1 の役割分担（既定200／抜粋120）に従い、呼び出し側が `max_length` に渡す。
 - マスキングは台帳・週次要約・異常報告のすべてに同じ関数を通す。生の `error_text` はスナップショット JSON（VM ローカル、リポジトリ外）にのみ残り、Sheets・チャット・Git には出ない。
 - テスト係向け：マスキングの fixture（認証情報風文字列、メールアドレス、長いID、パスを含むエラー文）をテスト仕様に含めること（§11）。
 
@@ -492,6 +364,14 @@ expected_duration: 15m
 
 ## 9. シャドー期間の実装
 
+> 通知ペイロードの契約の正本はテスト契約 `tests/interfaces.md` §6。
+> 実装はシャドー時もペイロードを返し（`should_notify=False`、
+> `suppressed_reason` に shadow の旨）、CLI が outbox に
+> `would_notify`／`suppressed_reason`／本文／検出名を記録する形を
+> 選択している。非シャドーで検出なしの場合は本文「異常なし」で
+> `should_notify=False` を返す（`None` は返さない）。
+
+
 ### 9.1 フラグの持ち方（二重ゲート＋既定は通知なし）
 
 > 【一部採用】フラグファイル方式・ファイルなし／破損時は通知しない fail-safe・手動切替のみ・既定シャドーは実装済みで現行仕様である。二重ゲートのうち (2) Reporter の送信直前再読（A-17）は【未採用】（実装は単一ゲートで、送信機能自体が無い）。
@@ -529,263 +409,49 @@ expected_duration: 15m
 
 ## 10. モジュール構成とインターフェース
 
-> 【未採用を含む】§10.1〜§10.3 の `src/watchdog/` レイアウト・13モジュール・詳細データ型・関数契約・CLI（`judge`／`weekly`）は実装と異なる。正はテスト契約 `tests/interfaces.md`、`docs/design-notes.md`、README。§10.4 のスナップショット形式は概ね有効（扱いの注意は §10.4 参照）。本文の参照化は C-072 で行う。
+> 【履歴・参照化済み（C-072）】初期設計の `src/watchdog/` レイアウト、
+> 13モジュール、詳細データ型（`TargetDefinition`／`Judgement` 等）、
+> 関数契約、CLI（`judge`／`weekly`）はいずれも実装と異なる（A-18）。
+> インターフェースの定義本文は本節に重複して保持しない。
 
-Executor とテスト係は本節を契約とする。言語は Python（Black＋PEP 8、isort `profile=black`、Conventional Commits、pytest）。時刻はすべて **timezone-aware な `datetime`** で扱い、naive な時刻が入ったら `ValueError` とする。全モジュールは標準ライブラリ＋PyYAML のみ（PyYAML の要否検証は §12）。
+- 関数・型の正本：テスト契約 `tests/interfaces.md` §1〜§6。
+- モジュール構成の差分の正本：`docs/design-notes.md`
+  「モジュール構成の差分」（フラットな `watchdog/`、テスト契約の
+  6モジュール＋追加3モジュール＋`clock.py`）。モジュール一覧は
+  README の構成表も参照。
+- 依存：追加依存ゼロが確定形である（`pyproject.toml` の
+  `dependencies = []`）。PyYAML は使わない（§12.2 の整理済み事項
+  も参照）。
+- CLI の正本：README「使い方」（`check`／`heartbeat`／
+  `shadow-status` の3コマンドと終了コード）。テスト契約に CLI の
+  定義は無い。終了コードの意味（0=正常、2=一部判定不能、
+  1=実行失敗）は初期設計と一致する。
 
 ### 10.1 リポジトリ構成
 
-```text
-cron-watchdog/
-├── README.md # 日本語。目的・構成・運用（シャドー／有効化手順）
-├── pyproject.toml
-├── config/
-│ ├── targets.yaml # 定義表（正本）
-│ └── targets.example.yaml # 伏せ字テンプレート
-├── config.local.json # 台帳スプレッドシートID等（.gitignore 対象・実ファイルは置かない）
-├── src/watchdog/
-│ ├── __init__.py
-│ ├── models.py # データ型（§10.2）
-│ ├── definitions.py # 定義表の読み込みと検証
-│ ├── schedule_calc.py # 予定時刻の算出
-│ ├── snapshot.py # スナップショット JSON の読み込みと検証
-│ ├── probes.py # 成果物証跡の確認
-│ ├── masking.py # エラーマスキング（§7）
-│ ├── judge.py # 判定（§4）
-│ ├── state.py # 状態ストア
-│ ├── heartbeat.py # 死活記録
-│ ├── ledger.py # 台帳行・異常イベント・週次要約データの組み立て
-│ └── cli.py # エントリポイント
-└── tests/ # テスト係が完了の定義から先に書く（§11）
-```
+- 参照化済み。正は README と `docs/design-notes.md`（上記）。
+  ランタイムデータはリポジトリ外に置く点は初期設計どおりである
+  （置き場所は README のデータ表が正）。
 
-ランタイムデータ（リポジトリ外）：`~/workspace/cron-watchdog-data/` 配下に `state.json`、`watchdog-heartbeat.jsonl`、`last-run.json`、`notify-flag.json`、`snapshots/`、`outbox/`。
+### 10.2 データ型
 
-### 10.2 データ型（`models.py`）
-
-```python
-from dataclasses import dataclass
-from datetime import datetime, timedelta
-from enum import Enum
-
-class State(Enum):
-NOT_YET_RUN = "未実行"
-RUNNING = "実行中"
-SUCCEEDED = "成功"
-FAILED = "失敗"
-UNKNOWN = "判定不能"
-
-class EvidenceKind(Enum):
-CRON_STATUS = "cron_status"
-ARTIFACT_FILE = "artifact_file"
-ARTIFACT_JSON = "artifact_json"
-CRON_OR_ARTIFACT = "cron_or_artifact"
-CRON_AND_ARTIFACT = "cron_and_artifact"
-
-@dataclass(frozen=True)
-class ScheduleSpec:
-kind: str # "daily"|"weekly"|"monthly"|"interval"|"yearly"
-time: str | None # "HH:MM:SS"（interval では None）
-dow: tuple[str,...] # weekly のみ
-dom: tuple[int,...] # monthly/yearly のみ
-every: timedelta | None # interval のみ
-
-@dataclass(frozen=True)
-class EvidenceSpec:
-kind: EvidenceKind
-path: str | None
-glob: str | None # "{date}" プレースホルダ可
-json_key: str | None
-
-@dataclass(frozen=True)
-class TargetDefinition:
-id: str
-display_name: str
-enabled: bool
-schedule: ScheduleSpec
-timezone: str # IANA 名 or "@user.current"
-grace: timedelta
-evidence: EvidenceSpec
-failure_threshold: int # 既定 2
-expected_duration: timedelta # 既定 60分
-
-@dataclass(frozen=True)
-class RunRecord:
-job_id: str
-run_id: str
-status: str # "succeeded"|"failed"|その他生値
-scheduled_for: datetime
-started_at: datetime | None
-finished_at: datetime | None
-attempt: int
-trigger_reason: str # "scheduled" 等
-error_text: str | None
-
-@dataclass(frozen=True)
-class StatusSnapshot:
-job_id: str
-enabled: bool
-in_flight: bool
-last_run_at: datetime | None
-last_status: str | None
-last_success_at: datetime | None
-consecutive_failures: int
-next_run_at: datetime | None
-resolved_timezone: str # 収集時に解決した IANA 名
-
-@dataclass(frozen=True)
-class CollectorSnapshot:
-collected_at: datetime
-statuses: dict[str, StatusSnapshot] # job_id -> status
-runs: dict[str, list[RunRecord]] # job_id -> runs（新しい順）
-
-@dataclass(frozen=True)
-class ArtifactProbe:
-found: bool
-observed_at: datetime | None # ファイル更新時刻 or JSON キー時刻
-detail: str # 個人情報を含まない短い説明
-
-@dataclass(frozen=True)
-class MaskedError:
-category: str # §7.1 の enum
-occurred_at: datetime | None
-has_log: bool
-excerpt: str | None # 120文字以内・マスキング済み
-
-@dataclass(frozen=True)
-class Judgement:
-target_id: str
-state: State
-reason_code: str # "OK"|"OVERDUE"|"NEVER_RAN_OVERDUE"|"CONSECUTIVE_FAILURES"|"LAST_RUN_FAILED"|"SOURCE_MISSING"|"COLLECT_FAILED"|"SCHEDULE_UNPARSEABLE"|"TZ_UNRESOLVED"|"EVIDENCE_UNREADABLE"|"JOB_DISABLED"|"RUNNING"|"NOT_YET_DUE"
-last_success_at: datetime | None
-consecutive_failures: int
-next_run_at: datetime | None
-deadline_at: datetime | None
-error: MaskedError | None
-judged_at: datetime
-
-@dataclass(frozen=True)
-class AnomalyEvent:
-kind: str # "detected"|"recovered"
-occurred_at: datetime
-target_id: str
-display_name: str
-state: State
-reason_code: str
-last_success_at: datetime | None
-error: MaskedError | None
-```
+- 参照化済み。正はテスト契約 `tests/interfaces.md` の各節の型
+  （`Definition`／`JobState`／`LedgerRow`／`SanitizedError`／
+  `NotificationPayload`）。
 
 ### 10.3 主要関数の契約
 
-```python
-# definitions.py
-def load_definitions(path: Path) -> list[TargetDefinition]:
-"""定義表を読み、型・必須項目・スケジュール整合を検証する。
-不正な定義が1件でもあれば DefinitionError（ValueError のサブクラス）で
-全体を失敗させる（部分的に読み飛ばして静かに見守り漏れを作らない）。"""
-
-# snapshot.py
-def load_snapshot(path: Path) -> CollectorSnapshot:
-"""収集係が出したスナップショット JSON を検証して型へ変換する。
-形式不正は SnapshotError。個別対象の欠落はエラーにせず、
-statuses/runs の欠落として Judge が判定不能を判断する。"""
-
-# schedule_calc.py
-def last_due(spec: ScheduleSpec, tz: ZoneInfo, now: datetime,
-phase_anchor: datetime | None = None) -> datetime | None:
-"""now 以前で最も新しい予定発火時刻。interval では phase_anchor
-（直近 run の scheduled_for 等）を位相の基準とする。無ければ None。"""
-
-def next_due(spec: ScheduleSpec, tz: ZoneInfo, after: datetime,
-phase_anchor: datetime | None = None) -> datetime | None:
-"""after より後で最も近い予定発火時刻。"""
-
-# probes.py
-def probe_artifact(spec: EvidenceSpec, tz: ZoneInfo, now: datetime) -> ArtifactProbe:
-"""成果物の有無と観測時刻を返す。読めない場合は例外にせず
-found=False, observed_at=None とし、detail に理由コードを含める。
-Judge 側で EVIDENCE_UNREADABLE として扱うための情報を detail に残す。"""
-
-# judge.py
-def count_consecutive_failures(runs: list[RunRecord]) -> int:
-"""§4.4：scheduled_for 単位に束ね、trigger_reason == 'scheduled' の
-完了 run のみを対象に、直近から連続する失敗回数を返す。"""
-
-def judge_target(defn: TargetDefinition,
-status: StatusSnapshot | None,
-runs: list[RunRecord],
-probe: ArtifactProbe | None,
-prev_last_success_at: datetime | None,
-now: datetime) -> Judgement:
-"""§4.2 の決定手順そのもの。純粋関数（I/O なし）。
-status が None の場合は判定不能を基本とし、証跡（probe）が
-cron 系でない場合に限り成果物だけで判定してよい。"""
-
-# masking.py
-def classify_error(error_text: str | None) -> str:
-"""§7.1 のカテゴリ enum を返す。None/空なら 'UNKNOWN' ではなく
-呼び出し側で has_log=False として扱うため、空入力では 'UNKNOWN' を返す契約にしない：
-空入力は ValueError。"""
-
-def mask_error(error_text: str | None, occurred_at: datetime | None) -> MaskedError:
-"""§7.2 の除去・置換・120文字切り捨てを適用する。None は has_log=False を返す。"""
-
-# state.py
-@dataclass
-class TargetState:
-last_success_at: datetime | None
-last_state: State | None
-last_consecutive_failures: int
-updated_at: datetime
-
-@dataclass
-class WatchdogState:
-targets: dict[str, TargetState]
-
-def load_state(path: Path) -> WatchdogState:... # 無ければ空で返す
-def save_state(path: Path, state: WatchdogState) -> None:... # 一時ファイル経由で原子的書換
-def merge_judgements(state: WatchdogState, judgements: list[Judgement],
-now: datetime) -> WatchdogState:
-"""last_success_at は単調増加（新しい観測でのみ前進）。状態と連続失敗は最新で上書き。"""
-
-# heartbeat.py
-def append_heartbeat(path: Path, record: dict) -> None:... # §6 の形式で1行追記
-def read_heartbeats(path: Path, since: datetime) -> list[dict]:...
-def summarize_self_health(records: list[dict], expected_runs: int,
-now: datetime) -> dict:
-"""{'last_run_at':..., 'executed':int, 'expected':int, 'stale':bool} を返す。
-stale は最終実行が12時間より古い場合に True。"""
-
-# ledger.py
-def build_ledger_rows(defs: list[TargetDefinition],
-judgements: list[Judgement]) -> list[list[str]]:
-"""§8.2 の列順で、ヘッダーを除くデータ行を返す（シート書記用 JSON の元）。"""
-
-def build_anomaly_events(prev: WatchdogState,
-judgements: list[Judgement]) -> list[AnomalyEvent]:
-"""状態遷移（成功→失敗／失敗→成功 等）だけをイベント化する。同状態の継続は出さない。"""
-
-def build_weekly_summary(state: WatchdogState, events: list[AnomalyEvent],
-self_health: dict, window_start: datetime,
-window_end: datetime, shadow: bool) -> dict:
-"""週次要約のデータ（文章化は Reporter の仕事。ここは件数・対象ID・自己稼働の構造化データまで）。"""
-
-# cli.py
-def main(argv: list[str] | None = None) -> int:
-"""サブコマンド：
-judge --definitions <path> --snapshot <path> --state <path> --data-dir <path> --out <path>
-判定を実行し、状態を更新し、heartbeat を追記し、
-{judgements, ledger_rows, anomaly_events, notify_drafts} の JSON を --out へ書く。
-戻り値：0=正常、2=一部判定不能（partial）、1=実行自体の失敗。
-weekly --data-dir <path> --out <path>
-過去7日の heartbeat とイベントから週次要約データを --out へ書く。
-"""
-```
+- 参照化済み。関数はテスト契約 `tests/interfaces.md` §1〜§6、
+  CLI は README「使い方」が正（上記）。
 
 ### 10.4 スナップショット JSON の形式（収集係との契約）
 
-収集係（エージェント）はこの形式で書く。Judge はこの形式だけを読む。
+収集係（エージェント）はこの形式で書く。判定側はこの形式だけを読む。
+
+> 扱いの正（B-13）：形式自体は概ね有効だが、読み込み側の扱いは実装が
+> 正である。`watchdog/snapshot.py` の読み込みは構造検証のみを行い、
+> `error_text` はマスキング後（`sanitized_snapshot_errors` 経由）でのみ
+> 取り出す。`result_summary` は一切読まない（§0-6）。
 
 ```json
 {
@@ -862,6 +528,11 @@ expected_duration: 15m
 
 ### 11.3 テスト係への申し送り（仕様由来のテスト観点）
 
+> 【履歴】本節は初期設計時点の申し送りであり、予定算出・理由コード・
+> 束ね・120文字切り捨て等の未採用仕様に基づく観点を含む。現行の
+> テストはテスト契約 `tests/interfaces.md` に基づく（`tests/` 配下）。
+> 本節の観点を現行仕様として読み替えてはいけない。
+
 - 予定算出：weekly の金→月（72時間）、monthly の月末（31日指定と短い月）、daily の日付またぎ（23:30＋猶予）、interval の位相引き継ぎ。
 - 判定：5区分すべての分岐、実行中の打ち切り、未実行→期限超過、判定不能の理由コード、対象ジョブ無効化（`JOB_DISABLED`）。
 - 連続失敗：`attempt` 違いの束ね、手動実行の除外、成功でのリセット。
@@ -901,8 +572,8 @@ expected_duration: 15m
 
 | # | 必須内容 | 本設計での対応 |
 |---|---|---|
-| 1 | 定例ごとの「成功の定義」を定義表に持ち、本体は読むだけ | §3（targets.yaml、証跡種別・周期・許容遅延・タイムゾーンを全項目化） |
-| 2 | 状態は5区分。実行中・判定不能を失敗と混ぜない | §4.2（決定手順を順序付きで固定） |
-| 3 | 見守り自身の最終実行時刻を対象とは別の場所に残し、週次要約に含める | §6（VMローカル JSONL＋週次要約への必須1行） |
-| 4 | エラー情報はマスキングと上限を設け、原文を転載しない | §7（出力項目4点に限定、パターン種別・120文字上限をコード固定。加えて `result_summary` は全面不使用） |
-| 5 | 導入初期はシャドー期間とし、調整後に通知へ切り替える | §9（フラグファイル＋二重ゲート＋手動切替手順。既定は通知なし） |
+| 1 | 定例ごとの「成功の定義」を定義表に持ち、本体は読むだけ | §3（初期設計の targets.yaml 案は未採用。現行の正本はテスト契約 §1） |
+| 2 | 状態は5区分。実行中・判定不能を失敗と混ぜない | §4.2（現行の条件の正本はテスト契約 §2。初期設計の順序付き決定表は未採用） |
+| 3 | 見守り自身の最終実行時刻を対象とは別の場所に残し、週次要約に含める | §6（別ファイルへの記録は実装済み。正本はテスト契約 §4。週次要約への必須1行は未採用） |
+| 4 | エラー情報はマスキングと上限を設け、原文を転載しない | §7（マスキングをコード固定、上限は既定200／抜粋120の役割分担。正本はテスト契約 §5。加えて `result_summary` は全面不使用） |
+| 5 | 導入初期はシャドー期間とし、調整後に通知へ切り替える | §9（フラグファイル＋単一ゲート＋手動切替手順。既定は通知なし。二重ゲートは未採用） |
