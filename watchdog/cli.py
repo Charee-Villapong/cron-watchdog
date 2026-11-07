@@ -18,10 +18,9 @@ import io
 import json
 import sys
 import uuid
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
+from watchdog.clock import resolve_now
 from watchdog.definitions import load_definitions_file
 from watchdog.heartbeat import append_heartbeat_record, record_heartbeat
 from watchdog.ledger import build_ledger_row, extract_overdue
@@ -48,11 +47,7 @@ def _row_dict(row) -> dict:
 
 def _cmd_check(args: argparse.Namespace) -> int:
     data_dir = Path(args.data_dir)
-    now = (
-        datetime.fromisoformat(args.now)
-        if args.now
-        else datetime.now(ZoneInfo("Asia/Tokyo"))
-    )
+    now = resolve_now(args.now)
     definitions = load_definitions_file(args.definitions)
     snapshot = load_snapshot(args.snapshot)
     store = load_state(args.state)
@@ -135,11 +130,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 
 def _cmd_heartbeat(args: argparse.Namespace) -> int:
-    now = (
-        datetime.fromisoformat(args.now)
-        if args.now
-        else datetime.now(ZoneInfo("Asia/Tokyo"))
-    )
+    now = resolve_now(args.now)
     path = Path(args.data_dir) / "last-run.txt"
     record_heartbeat(path, now)
     print(f"heartbeat recorded: {path} {now.isoformat()}")
