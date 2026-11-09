@@ -2,11 +2,9 @@
 
 定例 cron が「最後にいつ成功したか」を台帳化し、周期と許容遅延を超えた
 期限超過を検出する見守りプログラムです。判定は純粋な Python 処理で、
-外部通信は行いません。導入初期はシャドー運用（検出しても通知しない）
-が前提です。
+外部通信は行いません。既定はシャドー運用（検出しても通知しない）です。
 
-- 親 Issue: https://github.com/Charee-Villapong/ai-organization/issues/3
-- 設計書: `docs/design.md` / 実装メモ（設計との差分）: `docs/design-notes.md`
+- 設計書: `docs/design.md` / 仕様メモ: `docs/design-notes.md`
 - テスト契約: `tests/interfaces.md`
 
 ## 構成
@@ -21,10 +19,11 @@
 | `watchdog/heartbeat.py` | 見守り自身の死活記録（台帳とは別ファイル） |
 | `watchdog/masking.py` | エラー情報のマスキング（コード固定、設定で緩められない） |
 | `watchdog/notify.py` | 通知ペイロードの生成とシャドーフラグの読み取り（送信はしない） |
+| `watchdog/clock.py` | 現在時刻の解決（既定タイムゾーンは Asia/Tokyo 固定、`--now` の解釈） |
 | `watchdog/cli.py` | CLI（`python -m watchdog ...`） |
 
 状態判定の定義は、テスト契約 `tests/interfaces.md` §2 と
-`docs/design-notes.md`「状態判定の計算式」を正本とします。
+`docs/design-notes.md`「状態判定」を正本とします。
 本書では判定式を重複して記載しません（実行中・判定不能を
 失敗に混ぜない点も同所が正です）。
 
@@ -71,7 +70,7 @@ python -m pytest tests/ -q
 | `snapshots/` | 収集係が置くスナップショット JSON |
 | `outbox/notifications.jsonl` | 通知の下書き・記録（送信はしない） |
 
-スナップショット JSON の形式は `docs/design.md` §10.4 に従います。
+スナップショット JSON の形式は `docs/design.md` §8.1 に従います。
 スナップショット内の `result_summary` は個人情報を含みうるため、
 本プログラムは一切読み取りません（使うのは status / finished_at 等の
 メタ情報と、マスキング後の `error_text` のみ）。

@@ -1,4 +1,4 @@
-# 想定インターフェース一覧（テスト係が最小限定義）
+# 想定インターフェース一覧
 
 被テストパッケージ名は `watchdog` とする。実装はこのインターフェースに
 合わせること。テストは外部サービス（Sheets・ネットワーク・実 cron）に
@@ -8,7 +8,7 @@
 > import しない。各テスト関数の内部で初めて import する。これにより
 > 実装が無い段階でも収集エラーにならず、実行時に初めて失敗する。
 
-## 1. `watchdog.definitions` — 定義表の読み込み（必須要件1）
+## 1. `watchdog.definitions` — 定義表の読み込み
 
 ```python
 class DefinitionError(ValueError):
@@ -49,7 +49,7 @@ def parse_period(value: str) -> timedelta:
 }
 ```
 
-## 2. `watchdog.status` — 状態判定（必須要件2）
+## 2. `watchdog.status` — 状態判定
 
 ```python
 class Status(str, Enum):
@@ -122,7 +122,7 @@ def detect_overdue(states: Iterable[JobState], now: datetime) -> list[LedgerRow]
     RUNNING / UNKNOWN / NOT_RUN は含めない。"""
 ```
 
-## 4. `watchdog.heartbeat` — 見守り自身の死活記録（必須要件3）
+## 4. `watchdog.heartbeat` — 見守り自身の死活記録
 
 ```python
 def record_heartbeat(path: str | Path, now: datetime) -> None:
@@ -135,7 +135,7 @@ def read_heartbeat(path: str | Path) -> datetime | None:
     書き込んだ now と等しいこと。"""
 ```
 
-## 5. `watchdog.masking` — エラー情報のマスキング（必須要件4）
+## 5. `watchdog.masking` — エラー情報のマスキング
 
 ```python
 @dataclass(frozen=True)
@@ -162,7 +162,7 @@ def sanitize_error(
     has_log は保持し、message は mask_sensitive を通したものにする。"""
 ```
 
-## 6. `watchdog.notify` — 通知とシャドーモード（必須要件5）
+## 6. `watchdog.notify` — 通知とシャドーモード
 
 ```python
 @dataclass(frozen=True)
