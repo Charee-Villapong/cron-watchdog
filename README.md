@@ -19,6 +19,7 @@
 | `watchdog/heartbeat.py` | 見守り自身の死活記録（台帳とは別ファイル） |
 | `watchdog/masking.py` | エラー情報のマスキング（コード固定、設定で緩められない） |
 | `watchdog/notify.py` | 通知ペイロードの生成とシャドーフラグの読み取り（送信はしない） |
+| `watchdog/inventory.py` | cron 定義の投影ファイルから実在ジョブを列挙し、定義表との差分（一致／未登録／消滅）を分類 |
 | `watchdog/clock.py` | 現在時刻の解決（既定タイムゾーンは Asia/Tokyo 固定、`--now` の解釈） |
 | `watchdog/cli.py` | CLI（`python -m watchdog ...`） |
 
@@ -87,6 +88,22 @@ python -m pytest tests/ -q
   `notify-flag.json` の `notify` を `true` に手動で変更します
   （`mode` / `changed_at` / `note` も更新）。コード変更は不要です。
   戻す場合は `notify` を `false` に戻すだけです。
+
+## 定義表の差分検知
+
+`check` は毎回、定義表と「実在する cron ジョブ」の突き合わせも行い、
+結果をハートビート JSONL の `definition_diff`（一致／未登録／消滅）と
+標準エラー出力の要約に残します。検知のみで、定義表への自動追加・
+自動削除や、周期・許容遅延の推測登録はしません。
+
+- 実在ジョブの取得元は cron 定義の投影ファイル
+  （`~/workspace/goals/*/crons/**` と `~/workspace/cron.d/**`、frontmatter
+  の `id` / `enabled` / `schedule.kind`）です。スナップショットは
+  定義表にある対象しか含まないため、存在判定には使えません。
+  `_archive` 配下の古いコピーは無視します。
+- 「実在する定例」は有効（`enabled`）かつ runonce 以外のジョブだけです
+  （`--cron-roots` で取得元を変更可能）。投影ファイルが1件も読めない
+  場合は誤検知を避け、`definition_diff` を記録しません（null）。
 
 ## 自己試験（期限超過の意図的検出）
 
