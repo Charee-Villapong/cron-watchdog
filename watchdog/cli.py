@@ -2,8 +2,10 @@
 
 Subcommands:
   check          judge all targets, print ledger rows (JSON or CSV),
-                 merge the state store, record a heartbeat, and *log*
-                 the notification payload (never sends anything).
+                 merge the state store, record a heartbeat (including
+                 the definition-table diff against the live cron
+                 inventory), and *log* the notification payload
+                 (never sends anything).
   heartbeat      record a heartbeat only.
   shadow-status  show whether notifications are enabled by the flag.
 
@@ -24,6 +26,7 @@ from pathlib import Path
 from watchdog.clock import resolve_now
 from watchdog.definitions import load_definitions_file
 from watchdog.heartbeat import append_heartbeat_record, record_heartbeat
+from watchdog.inventory import classify_diff, load_inventory, recurring_names
 from watchdog.ledger import build_ledger_row, extract_overdue
 from watchdog.notify import build_notification, read_notify_flag
 from watchdog.snapshot import build_job_states, load_snapshot
@@ -31,6 +34,13 @@ from watchdog.state import apply_store, load_state, merge_observations, save_sta
 from watchdog.status import Status
 
 DEFAULT_DATA_DIR = Path.home() / "workspace" / "cron-watchdog-data"
+
+# Filesystem projection of the cron registry, used for the
+# definition-table diff (see watchdog.inventory).
+DEFAULT_CRON_ROOTS = (
+    Path.home() / "workspace" / "goals",
+    Path.home() / "workspace" / "cron.d",
+)
 
 # Single definition of the ledger-row serialization shape: the key
 # order here is both the JSON key order and the CSV column order.
@@ -100,8 +110,28 @@ def _emit_rows(args: argparse.Namespace, rows) -> None:
         print(_rows_json(rows))
 
 
+def _definition_diff(args: argparse.Namespace, rows):
+    """Diff the definition table against the live cron inventory.
+
+    Detection only: returns None when no cron projection files could
+    be read at all, so an unreadable inventory never makes every
+    target look missing.
+    """
+    roots = args.cron_roots
+    if roots is None:
+        roots = [str(p) for p in DEFAULT_CRON_ROOTS]
+    jobs = load_inventory(roots)
+    if not jobs:
+        return None
+    return classify_diff(recurring_names(jobs), [r.name for r in rows])
+
+
 def _record_check_heartbeat(
-    data_dir: Path, args: argparse.Namespace, now: datetime, rows
+    data_dir: Path,
+    args: argparse.Namespace,
+    now: datetime,
+    rows,
+    definition_diff=None,
 ) -> tuple[list[str], list[str]]:
     """Record the heartbeat in both stores; return (anomalies, unknown)."""
     # Heartbeat: JSONL log + plain last-run file, both outside the ledger.
@@ -119,6 +149,9 @@ def _record_check_heartbeat(
             "targets_checked": len(rows),
             "anomalies": anomalies,
             "snapshot": str(args.snapshot),
+            "definition_diff": (
+                definition_diff.as_dict() if definition_diff is not None else None
+            ),
         },
     )
     return anomalies, unknown
@@ -159,12 +192,21 @@ def _cmd_check(args: argparse.Namespace) -> int:
     _persist_state(args, store, states)
     _emit_rows(args, rows)
 
-    anomalies, unknown = _record_check_heartbeat(data_dir, args, now, rows)
+    definition_diff = _definition_diff(args, rows)
+    anomalies, unknown = _record_check_heartbeat(
+        data_dir, args, now, rows, definition_diff=definition_diff
+    )
     notify_enabled, outbox = _log_notification(data_dir, now, rows)
 
+    diff_note = ""
+    if definition_diff is not None:
+        diff_note = (
+            f" unregistered={definition_diff.unregistered}"
+            f" missing={definition_diff.missing}"
+        )
     print(
         f"[watchdog] checked={len(rows)} overdue={anomalies} "
-        f"unknown={unknown} notify_enabled={notify_enabled} "
+        f"unknown={unknown} notify_enabled={notify_enabled}{diff_note} "
         f"notification logged to {outbox} (not sent)",
         file=sys.stderr,
     )
@@ -201,6 +243,13 @@ def main(argv: list[str] | None = None) -> int:
     p_check.add_argument("--out")
     p_check.add_argument("--format", choices=["json", "csv"], default="json")
     p_check.add_argument("--now", help="ISO datetime override (testing)")
+    p_check.add_argument(
+        "--cron-roots",
+        action="append",
+        default=None,
+        help="cron projection tree root for the definition diff "
+        "(repeatable; defaults to ~/workspace/goals and ~/workspace/cron.d)",
+    )
     p_check.set_defaults(func=_cmd_check)
 
     p_hb = sub.add_parser("heartbeat")
