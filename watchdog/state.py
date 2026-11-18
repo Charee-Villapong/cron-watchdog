@@ -8,6 +8,8 @@ once observed by the watchdog must never be lost or moved backwards.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -57,9 +59,19 @@ def save_state(path: str | Path, store: StateStore) -> None:
             for name, job in sorted(store.jobs.items())
         }
     }
-    tmp = target.with_suffix(target.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(target)
+    text = json.dumps(payload, ensure_ascii=False, indent=2)
+    # Unique temp name: a fixed "*.tmp" name is shared by concurrent
+    # runs saving the same state file, which can corrupt the store.
+    fd, tmp_name = tempfile.mkstemp(
+        dir=target.parent, prefix=target.name + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(tmp_name, target)
+    except BaseException:
+        Path(tmp_name).unlink(missing_ok=True)
+        raise
 
 
 def merge_observations(store: StateStore, states) -> StateStore:
