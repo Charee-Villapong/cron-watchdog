@@ -13,9 +13,12 @@
   check の3つの記録（last-run／heartbeat JSONL／outbox）の時刻が
   互いに一致すること。
 
-観測で判明した現行の非対称も、そのまま固定する（直さない）:
-- `check` はオフセット無し（naive）の `--now` を付けると比較に失敗して
-  終了コード1になるが、`heartbeat` は naive のまま保存して正常終了する。
+時刻まわりの仕様変更（2026-11-18、naive/aware 混在による TypeError の
+不具合修正）も、変更後の挙動として固定する:
+- オフセット無し（naive）の `--now` は Asia/Tokyo の壁時計として解釈され、
+  `+09:00` を付けて扱われる。`check` も `heartbeat` も同じ解決をする
+  （変更前は `check` が比較に失敗して終了コード1になり、`heartbeat`
+  は naive のまま保存していた）。
 - `Z` サフィックスは両者とも `+00:00` 表記へ正規化される。
 - `--now` に与えたオフセットは変換されず、そのまま保存される
   （例: +00:00 のまま。Asia/Tokyo へは寄せられない）。
@@ -129,15 +132,19 @@ def test_check_now_z_suffix_is_normalized_to_utc_offset(tmp_path):
     assert recorded_times(data_dir)["last_run"] == UTC_SAME_INSTANT
 
 
-def test_check_naive_now_fails_with_exit_one_and_no_side_effects(tmp_path):
-    """オフセット無しの --now は比較エラーのため終了コード1、副作用なし。"""
+def test_check_naive_now_is_interpreted_as_tokyo_time(tmp_path):
+    """オフセット無しの --now は Asia/Tokyo として解釈され、正常終了する。
+
+    変更前は aware な最終成功との比較で TypeError になり終了コード1
+    だった（2026-11-18 の不具合修正で仕様変更）。
+    """
     result, data_dir = run_check(tmp_path, "--now", "2026-11-05T12:00:00")
 
-    assert result.returncode == 1
-    assert result.stdout == ""
-    assert "offset-naive" in result.stderr
-    assert not (tmp_path / "state.json").exists()
-    assert not data_dir.exists()
+    assert result.returncode == 0
+    assert set(recorded_times(data_dir).values()) == {
+        "2026-11-05T12:00:00+09:00"
+    }
+    assert (tmp_path / "state.json").exists()
 
 
 def test_check_invalid_now_fails_with_exit_one(tmp_path):
@@ -203,22 +210,25 @@ def test_heartbeat_now_z_suffix_is_normalized_to_utc_offset(tmp_path):
     assert last_run == "2026-11-05T12:00:00+00:00\n"
 
 
-def test_heartbeat_naive_now_is_stored_without_offset(tmp_path):
-    """check と違い、heartbeat は naive な --now をそのまま保存する。"""
+def test_heartbeat_naive_now_is_stored_with_tokyo_offset(tmp_path):
+    """heartbeat も check と同じく、naive な --now へ +09:00 を付けて保存する。
+
+    変更前は naive のまま保存していた（2026-11-18 の不具合修正で仕様変更）。
+    """
     result, data_dir = run_heartbeat(tmp_path, "--now", "2026-11-05T12:00:00")
 
     assert result.returncode == 0
     last_run = (data_dir / "last-run.txt").read_text(encoding="utf-8")
-    assert last_run == "2026-11-05T12:00:00\n"
-    assert "2026-11-05T12:00:00" in result.stdout
+    assert last_run == "2026-11-05T12:00:00+09:00\n"
+    assert "2026-11-05T12:00:00+09:00" in result.stdout
 
 
-def test_heartbeat_date_only_now_becomes_midnight_without_offset(tmp_path):
+def test_heartbeat_date_only_now_becomes_midnight_with_tokyo_offset(tmp_path):
     result, data_dir = run_heartbeat(tmp_path, "--now", "2026-11-05")
 
     assert result.returncode == 0
     last_run = (data_dir / "last-run.txt").read_text(encoding="utf-8")
-    assert last_run == "2026-11-05T00:00:00\n"
+    assert last_run == "2026-11-05T00:00:00+09:00\n"
 
 
 def test_heartbeat_invalid_now_fails_with_exit_one(tmp_path):

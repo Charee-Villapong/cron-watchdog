@@ -223,15 +223,18 @@ def test_non_string_status_datetime_raises_snapshot_error():
         _states_by_name(snapshot)
 
 
-def test_date_only_datetime_is_accepted_as_midnight_naive():
+def test_date_only_datetime_is_accepted_as_midnight_tokyo():
+    # 変更前は naive な真夜中として受理されていた。2026-11-18 の
+    # naive/aware 混在による TypeError 修正で、オフセット無しの値は
+    # Asia/Tokyo として解釈される仕様に変更された。
     snapshot = {
         "targets": {"job-a": _target(status=_status(last_success_at="2026-11-05"))}
     }
 
     state = _states_by_name(snapshot)["job-a"]
 
-    assert state.last_success_at == datetime(2026, 11, 5, 0, 0)
-    assert state.last_success_at.tzinfo is None
+    assert state.last_success_at == datetime(2026, 11, 5, 0, 0, tzinfo=JST)
+    assert state.last_success_at.tzinfo is not None
 
 
 # --- 連続失敗回数の型ガード -------------------------------------------------

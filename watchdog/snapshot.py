@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from watchdog.clock import as_default_timezone
 from watchdog.definitions import Definition
 from watchdog.ledger import JobState
 
@@ -31,9 +32,12 @@ def _parse_dt(value: Any) -> datetime | None:
     if not isinstance(value, str):
         raise SnapshotError(f"expected ISO datetime string, got {value!r}")
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
         raise SnapshotError(f"invalid ISO datetime: {value!r}") from exc
+    # Snapshot timestamps without an offset are Asia/Tokyo wall time;
+    # normalize here so they can be compared with aware values.
+    return as_default_timezone(parsed)
 
 
 def load_snapshot(path: str | Path) -> dict:

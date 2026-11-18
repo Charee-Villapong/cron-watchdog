@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from watchdog.clock import as_default_timezone
+
 
 @dataclass
 class StoredJob:
@@ -33,7 +35,9 @@ def load_state(path: str | Path) -> StateStore:
     for name, raw in data.get("jobs", {}).items():
         last = raw.get("last_success_at")
         jobs[name] = StoredJob(
-            last_success_at=datetime.fromisoformat(last) if last else None,
+            last_success_at=(
+                as_default_timezone(datetime.fromisoformat(last)) if last else None
+            ),
             consecutive_failures=int(raw.get("consecutive_failures", 0)),
         )
     return StateStore(jobs=jobs)
