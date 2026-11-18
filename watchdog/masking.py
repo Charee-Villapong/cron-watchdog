@@ -17,9 +17,17 @@ EXCERPT_MAX_LENGTH = 120
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+\S+")
+# An Authorization value is "<scheme> <credentials>": masking only the
+# first token leaves the credential itself in plain text (e.g. a short
+# "Basic abc123" survives every other rule). Mask the whole value.
+_AUTHORIZATION_RE = re.compile(
+    r"(?i)\b(authorization)\s*[:=]\s*(\"[^\"]*\"|'[^']*'|\S+(?:\s+\S+)?)"
+)
+# The value may be a quoted string containing spaces ("abc def"); a
+# bare \S+ would mask only up to the first space and leak the rest.
 _KV_SECRET_RE = re.compile(
     r"(?i)\b(token|password|passwd|secret|api[-_]?key|apikey|authorization"
-    r"|cookie|session)\s*[:=]\s*\S+"
+    r"|cookie|session)\s*[:=]\s*(\"[^\"]*\"|'[^']*'|\S+)"
 )
 _SK_KEY_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{8,}")
 _UUID_RE = re.compile(
@@ -44,6 +52,7 @@ class SanitizedError:
 def mask_sensitive(text: str, *, max_length: int = DEFAULT_MAX_LENGTH) -> str:
     result = _EMAIL_RE.sub("[masked-email]", text)
     result = _BEARER_RE.sub("Bearer [masked]", result)
+    result = _AUTHORIZATION_RE.sub(lambda m: f"{m.group(1)}=[masked]", result)
     result = _KV_SECRET_RE.sub(lambda m: f"{m.group(1)}=[masked]", result)
     result = _SK_KEY_RE.sub("[masked]", result)
     result = _UUID_RE.sub("[masked-id]", result)
