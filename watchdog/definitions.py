@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Iterable, Mapping
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 class DefinitionError(ValueError):
@@ -80,18 +81,30 @@ def _validate_row(row: Mapping[str, Any], index: int) -> Definition:
         raise DefinitionError(f"definition #{index}: 'tolerance_seconds' must be >= 0")
     period = row["period"].strip()
     parse_period(period)  # raises DefinitionError for invalid expressions
+    timezone = row["timezone"].strip()
+    try:
+        ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise DefinitionError(
+            f"definition #{index}: unknown timezone {timezone!r}"
+        ) from exc
     return Definition(
         name=row["name"].strip(),
         evidence_type=row["evidence_type"].strip(),
         period=period,
         tolerance_seconds=tolerance,
-        timezone=row["timezone"].strip(),
+        timezone=timezone,
     )
 
 
 def load_definitions(rows: Iterable[Mapping[str, Any]]) -> list[Definition]:
     """Load definition rows; any invalid row fails the whole load."""
-    return [_validate_row(row, i) for i, row in enumerate(rows)]
+    definitions = []
+    for i, row in enumerate(rows):
+        if not isinstance(row, Mapping):
+            raise DefinitionError(f"definition #{i}: row must be an object")
+        definitions.append(_validate_row(row, i))
+    return definitions
 
 
 def load_definitions_file(path: str | Path) -> list[Definition]:
@@ -105,6 +118,13 @@ def load_definitions_file(path: str | Path) -> list[Definition]:
         rows = data.get("definitions", data.get("targets"))
         if rows is None:
             raise DefinitionError("definitions file: no 'definitions' list found")
-    else:
+    elif isinstance(data, list):
         rows = data
+    else:
+        raise DefinitionError(
+            "definitions file: root must be an object or a list, "
+            f"got {type(data).__name__}"
+        )
+    if not isinstance(rows, list):
+        raise DefinitionError("definitions file: 'definitions' must be a list")
     return load_definitions(rows)
