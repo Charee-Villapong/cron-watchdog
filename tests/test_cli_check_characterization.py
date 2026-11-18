@@ -343,7 +343,10 @@ def test_check_exit_code_one_when_snapshot_missing(tmp_path):
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "cannot read snapshot" in result.stderr
+    # 2026-11-18 の修正以降、エラー文面は例外の種別のみで、
+    # パス等を含み得る生メッセージは出さない。
+    assert "[watchdog] error: SnapshotError" in result.stderr
+    assert "cannot read snapshot" not in result.stderr
     assert not paths["state"].exists()
     assert not paths["data_dir"].exists()
 

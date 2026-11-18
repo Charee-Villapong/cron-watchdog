@@ -152,7 +152,10 @@ def test_check_invalid_now_fails_with_exit_one(tmp_path):
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "Invalid isoformat string: 'not-a-date'" in result.stderr
+    # 2026-11-18 の修正以降、エラー文面は例外の種別のみで、
+    # 入力値を含む生メッセージは出さない。
+    assert "ValueError" in result.stderr
+    assert "not-a-date" not in result.stderr
     assert not data_dir.exists()
 
 
@@ -236,7 +239,9 @@ def test_heartbeat_invalid_now_fails_with_exit_one(tmp_path):
 
     assert result.returncode == 1
     assert result.stdout == ""
-    assert "Invalid isoformat string: 'not-a-date'" in result.stderr
+    # エラー文面は例外の種別のみ（生メッセージは出さない）。
+    assert "ValueError" in result.stderr
+    assert "not-a-date" not in result.stderr
     assert not data_dir.exists()
 
 

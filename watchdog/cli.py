@@ -265,7 +265,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         return args.func(args)
     except Exception as exc:  # CLI boundary: report, exit 1
-        print(f"[watchdog] error: {exc}", file=sys.stderr)
+        # Report the exception type only. The raw message can carry
+        # input values and internal paths, so it is never printed.
+        print(f"[watchdog] error: {type(exc).__name__}", file=sys.stderr)
         return 1
 
 
